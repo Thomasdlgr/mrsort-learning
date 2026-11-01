@@ -8,7 +8,7 @@ Journal des décisions prises pendant l'implémentation du jalon 3 (`notebooks/0
 |---|---|---|
 | T1 | Génération du scénario (A, malveillant, mélange) | fait |
 | T2 | Algorithme de B (adaptation de l'inv-2-MR-Sort, vitesse) | fait |
-| T3 | Identification du modèle de A | à cadrer |
+| T3 | Identification du modèle de A | fait |
 | T4 | Évaluation contre la vérité terrain | à cadrer |
 | T5 | Exemple de démonstration | à cadrer |
 | T6 | Modélisation du jeu (partie 2) | à cadrer |
@@ -24,8 +24,8 @@ Journal des décisions prises pendant l'implémentation du jalon 3 (`notebooks/0
 
 | Choix | Raison |
 |---|---|
-| **Paramètres par défaut : 6 critères, 3 catégories, 300 objets pour A**, tous configurables (`ScenarioConfig`) | Format le plus rapide pour lincs (comme `cr06_ca03` au jalon 2) et 300 objets de A donnent 600 objets au total, taille où les résultats du jalon 2 sont corrects. Rien n'est figé : on peut faire varier `n`, `p` et `n_A` pour tester la robustesse. |
-| **Le malveillant envoie autant d'objets que A** (`ratio_malveillant = 1`) | C'est l'énoncé : une donnée supplémentaire par donnée de A. B reçoit donc un mélange 50/50. Le ratio reste un paramètre pour les variantes. |
+| **Paramètres par défaut : 6 critères, 3 catégories, 300 objets pour A**, tous configurables (`ScenarioConfig`) | Format le plus rapide pour lincs (comme `cr06_ca03` au jalon 2) et 300 objets de A donnent 450 objets au total à ratio 0,5 (600 à ratio 1), taille où les résultats du jalon 2 sont corrects. Rien n'est figé : on peut faire varier `n`, `p` et `n_A` pour tester la robustesse. |
+| **Le malveillant envoie la moitié des objets de A par défaut** (`ratio_malveillant = 0,5`) | *Modifié en T3* (T1 avait posé 1,0). L'énoncé dit que le malveillant « peut » envoyer une donnée additionnelle par donnée de A : il envoie *au plus* autant que A. À ratio 1 les deux sources sont symétriques et le modèle de A est inidentifiable (T3). 0,5 est le cas où l'identification par la taille fonctionne (A fait 67 % de ce que reçoit B), donc celui de l'exemple de la partie 1. Le ratio est la variable de T4 : balayage sur {1,0 ; 0,85 ; 0,7 ; 0,5}. |
 | **Modèle du malveillant tiré avec le même générateur que celui de A** | Cas le plus neutre : les deux modèles sont indiscernables *a priori*, B ne peut pas reconnaître le malveillant à la forme de son modèle. Un générateur différent reste possible plus tard. |
 | **Performances `x` uniformes sur [0,1]ⁿ pour A et le malveillant** (`loi_x`, `loi_x_malveillant`) | Même loi que les datasets du jalon 2 et le test du jalon 1. Les `x` ne portent aucune information sur la source : le malveillant « basique » ne triche que sur les étiquettes. La loi est un paramètre, car la partie 2 pourra faire placer au malveillant ses objets ailleurs (c'est un levier de stratégie). |
 | **Poids : Dirichlet(1,…,1)** | Tirage uniforme sur le simplexe : positifs, somme 1, sans préférence pour des poids égaux ou déséquilibrés. |
@@ -46,8 +46,8 @@ Journal des décisions prises pendant l'implémentation du jalon 3 (`notebooks/0
 2. Étiquettes cohérentes avec le modèle de la source ; jeu de test cohérent avec le modèle de A.
 3. Modèles valides : poids ≥ 0 de somme 1, λ ∈ [0,5 ; 1[, profils croissants dans [0,1].
 4. Aucune catégorie sous le seuil ; en moyenne 3,6 essais de rejet par modèle (20 au maximum).
-5. Tailles des sources correctes et lignes mélangées (part de A dans la première moitié : 0,499).
-6. Indiscernabilité : test de Kolmogorov-Smirnov A contre malveillant par critère, 6,1 % de p-valeurs < 0,05 (attendu 5 %). Les `x` ne trahissent pas la source.
+5. Tailles des sources correctes et lignes mélangées (part de A dans la première moitié des lignes : 0,665 pour 0,667 attendu à ratio 0,5 ; l'assertion compare à `n_A / (n_A + n_M)`, et non plus à 0,5).
+6. Indiscernabilité : test de Kolmogorov-Smirnov A contre malveillant par critère, 3,3 % de p-valeurs < 0,05 à ratio 0,5 (6,1 % à ratio 1 ; attendu 5 %). Les `x` ne trahissent pas la source.
 7. Accord de 100 % entre `predict` (numpy) et lincs sur un modèle tiré.
 8. Un seuil impossible lève une erreur claire.
 
@@ -106,3 +106,66 @@ lincs est multithread (OpenMP) : un apprentissage seul utilise environ 5 cœurs 
 - **Pureté de la partition** : sur le scénario de démonstration T1 (graine 0), l'accord entre segments trouvés et sources réelles est de 0,78 (0,76 avec 20 itérations). Les modèles expliquent 99 % des objets, mais ne séparent pas les sources proprement. Un seul scénario, mais c'est le point à regarder en T3 et T4.
 - **Une anomalie de temps** : un essai à 8 itérations a pris 486 s sur un fichier (contre 46 à 50 s pour les autres variantes sur ce même fichier), sans cause identifiée.
 - **Exécution du notebook** : les mesures ont été faites avec des scripts lancés dans le `.venv` du projet. Le notebook a été généré mais n'a pas été exécuté par `nbconvert` (le noyau `python3` disponible n'est pas celui du `.venv`), donc il est livré sans sorties enregistrées.
+
+---
+
+## T3. Identification du modèle de A
+
+`identify_A(result_B, seuil)` décide lequel des deux modèles appris par `learn_B` est celui de A. `evaluate_identification(scenario, result_B, decision)` compare ce résultat à la vérité terrain.
+
+### Le problème
+
+Avec les choix de T1 (même générateur de modèles, même loi des `x`) et un ratio de 1, les deux sources sont **symétriques** : choisir A est un pile ou face, même avec une séparation parfaite. L'information n'est pas dans les données. T3 consiste donc à choisir l'asymétrie que l'on accorde à B.
+
+### Choix et raisons
+
+| Choix | Raison |
+|---|---|
+| **Asymétrie : ratio du malveillant < 1, le plus grand segment est supposé celui de A** | L'énoncé dit que le malveillant « peut » envoyer une donnée additionnelle par donnée de A, donc *au plus* autant. C'est la seule asymétrie garantie par le sujet, contrairement à un échantillon sûr de A (non prévu) ou à une régularité du modèle de A (hypothèse extérieure). |
+| **Ratio par défaut 0,5, balayage {1,0 ; 0,85 ; 0,7 ; 0,5} en T4** | À 0,5, A fait 67 % de ce que reçoit B : l'identification a une chance de fonctionner, l'exemple est lisible. Le balayage montre où elle s'effondre. Le ratio 1 est le meilleur choix du malveillant, donc un levier de la partie 2. |
+| **Confiance = écart relatif de taille `(n_grand − n_petit) / N`, taille seulement** | Rien ne rend le modèle de A mieux ajusté que celui du malveillant. Ajouter la qualité d'ajustement créerait un signal artificiel. |
+| **Abstention sous un seuil de confiance : B renvoie alors les deux modèles** | Quand les tailles sont proches, B annoncerait une certitude qu'il n'a pas. Confiance ≥ seuil donne un choix (donc seuil 0 : B choisit toujours, même à égalité, en prenant le segment 0). |
+| **Seuil `SEUIL_CONFIANCE = 0,10`, provisoire** | Posé a priori d'après l'erreur de proportion du jalon 2 (environ 10 points). **Il sera calibré en T4** sur des scénarios de calibration distincts de ceux du rapport final. Les essais ci-dessous montrent qu'il est probablement trop bas. |
+| **Sortie `Decision`** (dataclass) : `abstention`, `confiance`, `indice_segment_A`, `modele_A`, `modeles`, `tailles`, `seuil` | `modele_A` n'est renseigné que s'il y a un choix, `modeles` (les deux) que s'il y a abstention. |
+| **Deux métriques** : `oracle` = précision du meilleur des deux modèles appris sur le jeu de test (séparation), `identifie` = précision du modèle choisi (identification) | Quand un résultat est mauvais, on sait si l'échec vient de T2 ou de T3. |
+| **`identifie` vaut NaN en cas d'abstention** (et `bon_segment` aussi) | L'abstention est comptée à part (taux en T4) et la précision des cas où B se prononce se calcule avec `nanmean`. Remplacer NaN par `oracle` masquerait le coût de l'abstention. |
+| **Indicateurs supplémentaires** : `bon_segment` (le segment choisi contient majoritairement des objets de A), `grand_segment_est_A` (idem pour le plus grand segment, abstention ou non), `accord` (pureté de la partition à une permutation près) | `grand_segment_est_A` mesure l'hypothèse elle-même, indépendamment du seuil : il servira à calibrer le seuil. |
+
+### Tests
+
+**Sans lincs, déterministes** (résultats de B synthétiques construits à partir de la vérité terrain d'un scénario T1) : tous passés.
+1. Ratio 0,5, partition parfaite : B choisit le segment de A, `oracle` = `identifie` = 1, confiance = 1/3.
+2. Numéros de segments permutés : même identification.
+3. Ratio 1, partition parfaite : tailles égales, abstention, `identifie` = NaN, `oracle` = 1.
+4. Seuil 0 : B choisit toujours, même à égalité.
+5. Frontière : confiance exactement égale au seuil donne un choix, juste au-dessus une abstention.
+6. Limite : si le malveillant envoie plus que A (ratio 2), l'hypothèse est fausse : B choisit le modèle du malveillant, `bon_segment` = 0, `identifie` < `oracle` = 1.
+7. Partition aléatoire : `accord` entre 0,45 et 0,62.
+
+**Essai réel** (chaîne `make_scenario` → `learn_B` → `identify_A` → `evaluate_identification`, résultats dans `results/t3_essais.csv`, environ 28 s par scénario) :
+
+| Graine | Ratio | Segments trouvés | Segments réels | Confiance | Décision | `oracle` | `identifie` | `bon_segment` | `accord` |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 0,5 | 285 / 165 | 300 / 150 | 0,27 | choix | 0,880 | 0,880 | oui | 0,75 |
+| 2 | 0,5 | 261 / 189 | 300 / 150 | 0,16 | choix | 0,860 | 0,860 | oui | 0,63 |
+| 3 | 0,5 | 305 / 145 | 300 / 150 | 0,36 | choix | 0,879 | 0,879 | oui | 0,73 |
+| 1 | 1,0 | 365 / 235 | 300 / 300 | 0,22 | **choix (faux)** | 0,884 | 0,439 | **non** | 0,72 |
+| 0 (exemple de la cellule T2) | 0,5 | 230 / 220 | 300 / 150 | 0,02 | abstention | non mesuré | — | — | 0,73 |
+
+(Le dernier scénario n'est pas dans le CSV : il vient de la cellule d'essai de T2, qui utilise désormais le ratio 0,5 par défaut. Seuls ses segments et son accord ont été relevés, pas `oracle` : ne pas le comparer aux autres lignes sur ce point.)
+
+### Ce que montrent ces essais
+
+- **À ratio 0,5, l'hypothèse « le plus grand segment est A » est juste 3 fois sur 3**, avec des tailles trouvées proches des vraies (285/165, 261/189, 305/145 contre 300/150).
+- **Mais le scénario de la graine 0 donne 230/220** : l'algorithme a rapproché les segments de 50/50. Avec le seuil provisoire, B s'abstient, ce qui est honnête mais montre que l'identification par la taille ne marche pas à tout coup, même à ratio 0,5. Sur 4 scénarios à ratio 0,5, 3 permettent un choix correct, 1 donne une abstention.
+- **À ratio 1, B ne s'abstient pas et se trompe.** Les segments trouvés sont 365/235 alors que les vrais sont 300/300, soit une confiance de 0,22, au-dessus du seuil de 0,10. B choisit le modèle du malveillant (`identifie` = 0,44 pour un `oracle` de 0,88). Sans signal, les tailles trouvées s'écartent de 50/50 de plusieurs dizaines d'objets : une confiance de 0,22 ne prouve rien. **Le seuil provisoire de 0,10 est donc trop bas**, et le cas qui devait montrer l'abstention attendue montre le contraire. Ce résultat n'est pas une anomalie de code : les tests synthétiques 3 et 6 passent, c'est la partition de `learn_B` qui est déséquilibrée.
+- **La séparation est moyenne** : `oracle` ≈ 0,86 à 0,88, soit 12 à 14 % des objets de test classés autrement que par le modèle de A, même en prenant le meilleur modèle. C'est la limite de T2 (accord segments / sources de 0,63 à 0,75, comme sur le scénario de T2 qui donnait 0,73 à 0,78), pas de T3.
+
+### Limites
+
+- **Le seuil n'est pas calibré.** `SEUIL_CONFIANCE = 0,10` est provisoire. Quatre essais ne suffisent pas à le fixer : T4 doit le calibrer sur des scénarios à ratio 1 (où il faut s'abstenir) et à ratio < 1 (où il faut choisir), distincts de ceux du rapport final.
+- **L'algorithme tend à équilibrer les segments** (confirmé : 261/189 et 230/220 pour 300/150). L'écart de taille vu par B est donc plus petit que l'écart réel, et il est bruité de plusieurs dizaines d'objets. Le risque est que l'indicateur « taille » ne discrimine pas assez aux ratios intermédiaires (0,7 et 0,85).
+- **L'hypothèse est exploitable par le malveillant** : il lui suffit d'envoyer autant d'objets que A. C'est le point de départ de la partie 2.
+- **Peu de données** : 4 scénarios (5 avec l'exemple), tous mesurés avec une seule graine par ratio. Aucune moyenne ni écart-type n'est donnée, car ils n'auraient pas de sens à cette taille.
+- **`n_A` = 300 est la seule taille testée.** Le comportement pour d'autres tailles reste à mesurer.
+- **Le jeu de test suit la loi de A** (uniforme par défaut) : `oracle` et `identifie` mesurent la fidélité au modèle de A sur cette loi.
