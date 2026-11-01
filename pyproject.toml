@@ -1,10 +1,17 @@
 [project]
-name = "projet-sdp"
+name = "mrsort-learning"
 version = "0.1.0"
-description = "Add your description here"
+description = "Apprentissage de modèles MR-Sort (Gurobi, lincs) et inv-2-MR-Sort - projet SDP 2026-27"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "grb>=0.1.0",
     "gurobipy>=13.0.3",
+    "ipykernel>=7.4.0",
+    "jinja2>=3.1",
+    "lincs>=2.0.2",
+    "matplotlib>=3.11",
+    "numpy>=2.5",
+    "pandas>=3.0",
+    "pyyaml>=6.0",
+    "scipy>=1.18",
 ]

@@ -1,11 +1,17 @@
-# Python-generated files
+# Python
 __pycache__/
 *.py[oc]
 build/
 dist/
 wheels/
 *.egg-info
-Datasets-Step2/
-
-# Virtual environments
 .venv
+
+# OS / éditeur
+.DS_Store
+
+# Données et sorties volumineuses
+data/Datasets-Step2/
+results/logs/
+results/benchmark_results/
+*.log
