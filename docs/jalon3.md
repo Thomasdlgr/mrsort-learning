@@ -10,6 +10,8 @@ Journal des décisions prises pendant l'implémentation du jalon 3 (`notebooks/0
 | T2 | Algorithme de B (adaptation de l'inv-2-MR-Sort, vitesse) | fait |
 | T3 | Identification du modèle de A | fait |
 | T4 | Évaluation contre la vérité terrain | fait |
+| T4b | Test du ratio 0,925 (prolongement de T4) | fait |
+| TB | Améliorations de B (plafond, M1 à budget égal, réapprentissage) | fait |
 | T5 | Exemple de démonstration | à cadrer |
 | T6 | Modélisation du jeu (partie 2) | à cadrer |
 | T7 | Stratégies de brouillage | à cadrer |
@@ -388,6 +390,130 @@ Conséquence pour la partie 2 : le ratio 1,0 désarme l'identification (45 % de 
 - **Calibration sur 40 scénarios seulement** : le seuil est fragile (un scénario sépare 0,05 de 0,06) et la cible de 10 % d'erreur n'est pas tenue sur le lot final (11,3 %).
 - **M1 est évalué seulement par rapport au modèle de A.**
 - **Pas de correction pour les comparaisons multiples** ; intervalles bootstrap sur 20 scénarios par ratio.
-- **Aucun ratio entre 0,85 et 1,0.**
+- **Aucun ratio entre 0,85 et 1,0** dans le lot final (testé ensuite à 0,925 : voir la section « Test du ratio 0,925 »).
 - **Le notebook n'a pas été exécuté par Jupyter** (le noyau disponible n'est pas celui du `.venv`) : il est livré sans sorties, et les tableaux ont été vérifiés en exécutant le code des cellules comme un script.
 
+
+---
+
+## Test du ratio 0,925 (prolongement de T4)
+
+### Pourquoi
+Le lot final de T4 ne contenait aucun ratio entre 0,85 et 1,0 : on ne savait pas où l'identification de A cesse de fonctionner. On ajoute **20 scénarios au ratio 0,925** (278 objets du malveillant pour 300 de A, A = 52 % du mélange), graines 400 à 419, **distinctes de toutes les plages déjà utilisées**, avec exactement les mêmes méthodes que T4 : M1, M2, M3 sans abstention, oracle, hasard (script `diag_scenario`, résultats dans `results/t4_ratio0925.csv`). Le seuil d'abstention reste celui qui a été figé en T4 (0,06) : il n'est pas recalibré.
+
+### Résultats (20 scénarios, moyenne ± écart-type ; chiffres recalculés à partir du CSV)
+
+| Méthode | Précision sur le test (modèle de A) |
+|---|---|
+| M1 modèle unique | 0,758 ± 0,084 |
+| M2 choix par la taille | 0,715 ± 0,239 |
+| M3 objets expliqués (sans abstention) | 0,798 ± 0,211 |
+| oracle (meilleur des 2 modèles) | 0,847 ± 0,146 |
+| hasard (moyenne des 2 modèles) | 0,645 ± 0,062 |
+| B avec abstention (= réponse au hasard) | 0,647 ± 0,116 |
+| B avec abstention (= échec) | 0,181 ± 0,303 |
+
+- **Bon choix** : M3 16 sur 20 (0,80 [0,58 ; 0,92], intervalle de Wilson), M2 13 sur 20 (0,65 [0,43 ; 0,82]).
+- **M3 − M1 = +0,040** (erreur-type 0,047 ; bootstrap à 95 % [−0,052 ; +0,121]) : indiscernable de zéro. M3 gagne 14 fois et perd 6 fois contre M1. M3 − M2 = +0,082.
+- **Partitions** : segments trouvés 322 / 256 (grand / petit) pour 300 / 278 réels, accord segments / sources de 0,70.
+- **Temps** : M1 4,2 s, pipeline 28,4 s.
+
+### Seuil d'abstention (0,06, figé en T4)
+- B s'abstient dans **70 %** des scénarios (14 sur 20) et se prononce 6 fois, avec **3 erreurs sur 6** choix : 50 % d'erreur parmi les choix faits, pour une cible de 10 % en calibration.
+- La confiance moyenne de M3 vaut 0,061, soit tout juste le seuil. Les confiances des **4 mauvais choix** sont comprises entre 0,059 et 0,085, alors que celles des 16 bons choix vont de 0,003 à 0,253 : **la confiance ne sépare pas les mauvais choix des bons** à ce ratio, ce qui confirme la limite constatée à ratio 1,0.
+- L'abstention fait perdre de la précision : avec l'abstention comptée comme réponse au hasard, B fait 0,647, soit **0,111 de moins que M1** ([−0,165 ; −0,053]).
+
+### Lecture
+- **Établi (20 scénarios, cette configuration)** : à ratio 0,925, l'identification se dégrade (80 % de bons choix, contre 95 % aux ratios 0,5 à 0,85 et 45 % à 1,0) et le seuil figé ne la protège pas. C'est la transition entre le régime où A est identifiable (≤ 0,85) et le régime indécidable (1,0).
+- **Indicatif** : l'écart de précision M3 − M1 (+0,040) est dans le bruit, comme pour les autres ratios. La séparation reste correcte (oracle 0,847 ; oracle − M1 = +0,089).
+- **Non conclu** : on n'a pas assez de ratios pour situer la frontière plus précisément qu'entre 0,85 et 1,0, et le seuil de 0,06 devrait être recalibré pour être utile à ce ratio (non fait, la calibration reste celle de T4).
+
+---
+
+## Améliorations de B
+
+### Question
+Le lot final de T4 et le test à 0,925 montrent que le pipeline M3 identifie A mais ne bat pas le modèle unique M1. Une amélioration de B donne-t-elle un gain de précision **mesurable** sur le modèle de A ? Notebook : section « Améliorations de B » de `03_jalon3_agent_malicieux.ipynb` ; résultats dans `results/b_explore.csv`, `results/b_confirm.csv`, `results/b_confirm.png`.
+
+### Méthodes et raisons
+
+| Méthode | Principe | Pourquoi |
+|---|---|---|
+| **plafond** | lincs appris sur les seuls objets de A (source connue), même budget que M1 | borne supérieure de ce que B pourrait atteindre ; B ne peut pas le faire |
+| **M1_eq** | M1 avec le budget de calcul du pipeline : `POLISH_SECONDS` × 7 = 28 s par apprentissage, patience de lincs désactivée | comparaison équitable : M1 n'avait que 4 s. Mesuré : le premier essai ne durait que 14 s car lincs s'arrête après 30 itérations sans progrès ; avec la patience désactivée, M1_eq dure 28,2 s, comme le pipeline |
+| **`trim_e2`** (M1_trim) | apprendre M1, retirer les objets dont l'écart de catégorie est ≥ 2, réapprendre, 3 tours au plus | les objets du malveillant sont du bruit pour A ; un apprentissage « tronqué » devrait s'en protéger |
+| **`trim_f40`** (M1_trim) | idem, mais on retire tous les mal classés, au plus 40 % des objets, les pires d'abord | variante plus agressive |
+| **`refit_exp`** (M3_refit) | après le choix de M3, réapprendre un modèle (`POLISH_SECONDS` × 2) sur les objets que le modèle choisi explique | corriger la partition impure par l'identification |
+| **`refit_union`** (M3_refit) | idem, sur les objets expliqués union ceux du segment choisi | variante moins sélective |
+
+Garde-fous : `trim` s'arrête si la sélection ne change plus ou si on garderait moins de 50 % des objets ; `refit` garde le modèle choisi par M3 si le modèle réappris fait moins bien que lui sur ses données (le garde-fou ne s'est déclenché que dans 3 à 5 % des scénarios). Aucune variante n'utilise la vérité terrain, sauf le plafond.
+
+### Protocole et règle de sélection (écrite avant de lancer l'exploration)
+- **Exploration** : graines 500 à 515, ratios {0,85 ; 0,5}, 8 scénarios par ratio, toutes les variantes.
+- **Règle de sélection** : parmi les quatre variantes de B (hors plafond et M1_eq, qui sont des références), on garde les **deux de plus grande précision moyenne sur l'ensemble de l'exploration**.
+- **Confirmation** : graines 600 à 699, ratios {1,0 ; 0,925 ; 0,85 ; 0,7 ; 0,5}, 20 scénarios par ratio, avec les deux variantes retenues, M1, M1_eq, M3, plafond, oracle et hasard. Mêmes scénarios pour toutes les méthodes ; le pipeline n'est lancé qu'une fois par scénario. Les plages de graines (400-419, 500-515, 600-699) sont disjointes de toutes les précédentes, avec un test dans le notebook.
+- Calcul séquentiel (lincs est limité par le temps et multithread : deux calculs simultanés fausseraient les résultats). Durée : exploration environ 25 minutes, confirmation environ 2 heures.
+
+### Résultat de l'exploration
+Précision moyenne sur les 16 scénarios : `refit_exp` 0,872, `refit_union` 0,870, `trim_e2` 0,866, `trim_f40` 0,852. La règle retient donc **`refit_exp` et `refit_union`**. `trim_e2` est à 0,6 point de la deuxième place : sur ces 16 scénarios il dépassait M1 de 1,2 point (ratio 0,85) et 1,7 point (ratio 0,5), sans que ce soit concluant. Il n'a pas été confirmé.
+
+### Résultats de la confirmation (100 scénarios)
+
+Précision sur le test (modèle de A), moyenne sur 20 scénarios par ratio :
+
+| Ratio | M1 (4 s) | M1_eq (28 s) | M3 | `refit_exp` | `refit_union` | plafond | oracle |
+|---|---|---|---|---|---|---|---|
+| 1,0 | 0,694 | 0,695 | 0,671 | 0,677 | 0,677 | 0,980 | 0,852 |
+| 0,925 | 0,737 | 0,745 | 0,728 | 0,734 | 0,733 | 0,976 | 0,855 |
+| 0,85 | 0,791 | 0,793 | 0,847 | 0,848 | 0,850 | 0,982 | 0,880 |
+| 0,7 | 0,846 | 0,856 | 0,796 | 0,807 | 0,809 | 0,980 | 0,839 |
+| 0,5 | 0,920 | 0,913 | 0,909 | 0,914 | 0,912 | 0,978 | 0,909 |
+| < 1 réunis | 0,823 | 0,827 | 0,820 | 0,826 | 0,826 | 0,979 | 0,871 |
+
+Écarts-types : M1 de 0,037 à 0,142 ; M3, `refit_*` de 0,077 à 0,256 ; plafond de 0,008 à 0,014. Figure : `results/b_confirm.png` (M1, M1_eq, `refit_union`, M3 avec barres d'erreur ± 1,96 erreur-type, plafond en repère).
+
+Différences appariées (même scénario), moyenne [intervalle bootstrap 95 %, 1000 tirages], aux ratios < 1 réunis (80 scénarios) :
+
+| Différence | Valeur |
+|---|---|
+| M1_eq − M1 (sur les 100 scénarios) | +0,003 [−0,008 ; +0,014] |
+| `refit_exp` − M1 | +0,002 [−0,039 ; +0,042] |
+| `refit_union` − M1 | +0,003 [−0,038 ; +0,043] |
+| `refit_exp` − M1_eq | −0,001 [−0,041 ; +0,041] |
+| `refit_union` − M1_eq | −0,001 [−0,041 ; +0,042] |
+| M3 − M1 | −0,003 [−0,045 ; +0,037] |
+| `refit_exp` − M3 | +0,006 [+0,003 ; +0,009] |
+| `refit_union` − M3 | +0,006 [+0,003 ; +0,009] |
+
+Part du chemin de M1 vers le plafond comblée (aux ratios < 1) : M1_eq +2 %, M3 −2 %, `refit_exp` +2 %, `refit_union` +2 % ; par ratio elle va de −37 % à +31 %, avec un signe qui change d'un ratio à l'autre.
+
+Temps moyens : M1 4,2 s ; plafond 2,0 s ; M1_eq 28,2 s ; pipeline 28,2 s ; `refit_exp` +2,7 s ; `refit_union` +5,3 s (en plus du pipeline). Bon choix de M3 : 12/20, 14/20, 17/20, 17/20, 20/20 pour les ratios 1,0 ; 0,925 ; 0,85 ; 0,7 ; 0,5 (54 sur 60 sur les trois derniers, contre 57 sur 60 en T4).
+
+### Lecture
+
+**Établi (100 scénarios, cette configuration)**
+- **Le plafond vaut 0,98 à tous les ratios.** Quand lincs n'apprend que les objets de A, il retrouve presque parfaitement leur modèle. Tout l'écart de B vient donc de la contamination : pour M1, 0,29 à ratio 1,0, 0,24 à 0,925, 0,19 à 0,85, 0,14 à 0,7 et 0,06 à 0,5. **Il y a donc beaucoup de marge ; aucune des méthodes testées n'en exploite.**
+- **Plus de calcul ne sert à rien pour M1** : M1_eq − M1 = +0,003.
+- **Aucune amélioration n'améliore de façon mesurable M1** : les deux variantes retenues sont à +0,2 ou +0,3 point de M1 aux ratios < 1, avec des intervalles de ± 4 points.
+- **Le réapprentissage améliore M3 de 0,6 point** (intervalle qui exclut zéro) : effet réel mais négligeable, environ 2 % de l'écart M3 → plafond.
+
+**Indicatif**
+- Les signes par ratio ne sont pas stables : M3 − M1 vaut +0,057 à 0,85 et −0,050 à 0,7 ici, contre +0,032 et +0,028 en T4. Avec 20 scénarios par ratio et des écarts-types de 0,16 à 0,26 pour M3, seule une moyenne sur plusieurs ratios est lisible.
+- **Les erreurs d'identification annulent les gains.** Aux ratios < 1, M3 fait 0,880 contre 0,830 pour M1 quand il choisit bien (68 scénarios sur 80), et 0,480 contre 0,789 quand il se trompe (12 scénarios). Conditionner sur le résultat favorise le « bon choix » : c'est descriptif, pas une estimation d'effet.
+
+**Non conclu**
+- **Pourquoi le réapprentissage n'apporte presque rien.** Hypothèse non testée : il s'entraîne uniquement sur les objets que le modèle choisi explique déjà. Les objets de A que ce modèle classe mal sont écartés, et le réapprentissage ne peut donc pas les corriger. L'écart restant au plafond est précisément fait de ces erreurs.
+- **`trim_e2` et `trim_f40` n'ont pas été confirmés** : la règle les a écartés.
+
+### Recommandation
+- **Méthode de B pour la partie 2 : garder M1 comme méthode principale et M3 comme méthode complémentaire.** M1 coûte 4 s, ne perd rien en précision et permet d'évaluer beaucoup de scénarios. M3 reste utile pour ce que M1 ne fait pas : identifier A (85 à 100 % de bons choix pour un ratio ≤ 0,85) et apprendre aussi le modèle du malveillant. Le réapprentissage (`refit_*`) n'est pas justifié par son coût et son gain.
+- **Ce que ça change pour la partie 2 (brouillage).** Le plafond de 0,98 donne la mesure de référence du **dommage causé par le malveillant** : plafond − précision de B. Le malveillant basique, à ratio 1,0 avec un modèle tiré comme celui de A, abaisse M1 de 0,98 à 0,69 (dommage de 0,29) ; le ratio seul est déjà un levier fort. Une stratégie de brouillage doit donc se comparer à ce dommage de référence, contre M1 et M3. Comme les mesures sont bruitées (écarts-types de 0,12 à 0,25 sur 20 scénarios), il faudra une vingtaine de scénarios par configuration et des différences appariées, comme ici.
+- **Pistes non testées pour combler l'écart au plafond** : un apprentissage robuste qui ne retire pas seulement les objets déjà expliqués (par exemple pondération progressive ou réaffectation douce), le programme linéaire exact du jalon 1 initialisé par lincs, `trim_e2` confirmé sur 100 scénarios.
+
+### Limites
+- 20 scénarios par ratio, une seule configuration (6 critères, 3 catégories, 300 objets de A, loi uniforme) ; exploration sur 16 scénarios seulement.
+- La règle de sélection a écarté `trim_e2` sur un écart de 0,6 point sur 16 scénarios.
+- Le plafond n'est pas réalisable (il connaît la source) ; l'oracle non plus (il choisit avec la vérité terrain).
+- lincs s'arrête sur un temps : résultats non reproductibles à l'octet près, une seule exécution de chaque lot.
+- Pas de correction pour les comparaisons multiples ; intervalles bootstrap.
+- Le notebook n'a pas été exécuté par Jupyter (noyau différent du `.venv`), il est livré sans sorties ; le code des cellules a été exécuté comme un script et les tableaux ont été vérifiés.
