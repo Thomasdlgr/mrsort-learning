@@ -1,0 +1,155 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[french]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{float}
+
+\title{Projet SDP\\Apprentissage de modèles MR-Sort}
+\author{%
+Aurélien Delest\\
+Robin Capelle\\
+Thomas de la Grand'rive\\[0.8em]
+Mention IA, 2026--2027}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Ce rapport rassemble les résultats des trois jalons. Le jalon~1 apprend un modèle MR-Sort exact par programme linéaire en nombres entiers. Le jalon~2 apprend deux modèles mélangés par une heuristique. Le jalon~3 place cet apprentissage dans un échange entre un émetteur~A et un récepteur~B, brouillé par un agent malveillant. Sur les essais du jalon~1, le modèle appris classe comme le modèle d'origine dans 94~\% des cas. Au jalon~2, deux modèles font mieux qu'un seul. Au jalon~3, un malveillant qui envoie autant d'objets que~A fait chuter~B. La chute est plus forte si le malveillant met tous ses objets dans la catégorie la plus basse, ou s'il utilise un modèle extrême.
+\end{abstract}
+
+\section{Jalon 1 : un modèle MR-Sort}
+
+Un objet est décrit par $n$ notes à maximiser. Il est affecté à une catégorie parmi $p$, de la pire à la meilleure. Pour franchir une frontière, la somme des poids des critères sur lesquels il atteint le profil doit dépasser un seuil de majorité $\lambda$. Les poids sont positifs et de somme~1.
+
+Le modèle est appris par un programme linéaire en nombres entiers, résolu avec Gurobi. L'objectif est de restituer le mieux possible un ensemble d'apprentissage dont les catégories sont connues.
+
+Sur \texttt{dataset0} (60 objets, 5 critères, 3 catégories), Gurobi restitue les 60 objets. Le contrôle par la règle MR-Sort confirme cette restitution.
+
+Le protocole du sujet est ensuite répété 20 fois. Un modèle d'origine est tiré au hasard, 100 objets d'apprentissage sont classés par ce modèle, le programme apprend un modèle, et 10\,000 objets de test comparent les deux. La configuration est celle de \texttt{dataset0} : 5 critères, 3 catégories, notes dans $[0,100]$. Les modèles d'origine qui laissent une catégorie vide sont écartés.
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+Qualité moyenne & $0{,}937 \pm 0{,}028$ \\
+Qualité minimale & $0{,}878$ \\
+Temps moyen de résolution & $0{,}62$~s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La qualité est la proportion d'objets de test classés de la même façon par le modèle d'origine et par le modèle appris. L'apprentissage exact retrouve donc le comportement du modèle d'origine, avec un écart d'environ six points.
+
+\section{Jalon 2 : deux modèles mélangés}
+
+Les clients d'un supermarché n'ont pas tous le même comportement. Les données mélangent deux segments, et l'appartenance de chaque produit est inconnue. Il faut à la fois retrouver la partition et apprendre un MR-Sort par segment. Le problème est traité par l'heuristique de la bibliothèque lincs, car la version exacte du jalon~1 devient trop coûteuse.
+
+L'algorithme alterne deux étapes, sur le modèle d'un $k$-means. On apprend un modèle par segment, puis chaque objet est envoyé au modèle qui l'explique le mieux. L'explication compare d'abord l'écart de catégorie, puis la marge. Un objet ne change de segment que si l'autre modèle l'explique strictement mieux. Quatre départs sont lancés : un départ guidé par les erreurs d'un modèle unique, et trois départs aléatoires. On retient le départ qui explique le plus d'objets, puis chaque modèle est réappris plus longtemps. L'algorithme ne connaît ni la taille des segments ni le niveau de bruit. Partager les objets compatibles avec les deux modèles a été essayé : cela n'améliorait pas la précision et coûtait environ 23~\% de temps en plus. Cette option a été abandonnée.
+
+Sur les 31 fichiers de type~A enregistrés (6, 8 ou 10 critères, 3 à 5 catégories, 300 à 1\,200 objets), 10~\% des objets sont mis de côté comme test. La précision de test de deux modèles est la part des objets bien classés par au moins l'un des deux.
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Méthode & Précision de test & \\
+\midrule
+Un seul modèle & 0,68 & \\
+Deux modèles sur une partition aléatoire & 0,79 & \\
+Deux modèles après réaffectation & 0,87 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+L'écart avec la partition aléatoire, 8 points en moyenne, mesure l'apport de la segmentation. L'erreur sur la taille du petit segment est de 9 points en moyenne : les proportions sont retrouvées de façon approximative. Sans bruit, la précision de test vaut 0,91 ; avec 10~\% de bruit, elle vaut 0,82. Elle passe de 0,81 pour 300 objets à 0,91 pour 1\,200 objets.
+
+\section{Jalon 3 : A, B et un agent malveillant}
+
+A envoie à B des objets classés par son modèle MR-Sort. A a peu de calcul : il transmet ce qu'il observe, il n'envoie pas le modèle. Un agent malveillant peut ajouter au plus un objet par objet de A. Il choisit lui-même le vecteur et la catégorie. B reçoit le mélange, sans savoir qui a envoyé quoi, et doit retrouver le modèle de A.
+
+Les essais utilisent 6 critères, 3 catégories et 300 objets de A. Le jeu de test compte 1\,000 objets tirés comme ceux de A et classés par son modèle. La précision est la part de ces objets classés comme A le ferait. Quand B n'apprend que sur les objets de A, cette précision vaut environ 0,98.
+
+\subsection{Malveillant basique}
+
+Le malveillant basique tire un MR-Sort au hasard, avec le même générateur que A, et étiquette ses objets avec ce modèle. B peut répondre de deux façons. Le modèle unique apprend un seul MR-Sort sur tout le mélange. Le choix de B apprend deux modèles, par l'algorithme du jalon~2, puis garde celui qui classe correctement le plus d'objets reçus. Il ne voit pas la source de chaque objet. Si A a envoyé davantage, son modèle recolle à davantage d'objets. Si les deux en envoient autant, les deux comptes sont proches et le choix ne désigne plus A.
+
+La figure~\ref{fig:t4} résume 80 scénarios, 20 par quantité envoyée par le malveillant. Le ratio est le nombre d'objets du malveillant divisé par celui de A.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../results/t4_final.png}
+\caption{Précision de B selon la quantité envoyée par le malveillant basique. Vingt scénarios par ratio. Les barres valent $\pm 1{,}96$ erreur-type.}
+\label{fig:t4}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{ccccc}
+\toprule
+Ratio & Modèle unique & Choix de B & Meilleur des deux & Bonne règle \\
+\midrule
+0,50 & 0,91 & 0,87 & 0,87 & 20/20 \\
+0,70 & 0,84 & 0,87 & 0,88 & 19/20 \\
+0,85 & 0,83 & 0,86 & 0,90 & 18/20 \\
+1,00 & 0,70 & 0,68 & 0,85 & 9/20 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Tant que le malveillant envoie moins que A, B désigne la bonne règle dans au moins 18 cas sur 20. Quand il envoie autant, ce choix est bon 9 fois sur 20, soit le niveau d'un pile ou face. La séparation en deux modèles reste bonne : le meilleur des deux atteint encore 0,85. B ne sait plus lequel garder.
+
+Apprendre un seul modèle sur tout le mélange donne une précision du même ordre, pour un temps d'environ 4~s au lieu d'environ 30~s. Des variantes ont été essayées pour rapprocher B du plafond de 0,98 : lui donner le même temps de calcul que le pipeline, retirer les objets mal classés, ou réapprendre sur les objets expliqués par le modèle choisi. Sur 100 scénarios, aucune ne comble l'écart. La figure~\ref{fig:b} le montre. Le plafond, en haut du graphique, est la précision obtenue quand B n'apprend que sur les objets de A.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../results/b_confirm.png}
+\caption{Essais pour améliorer B face au malveillant basique. Vingt scénarios par ratio. Le plafond connaît la source de chaque objet ; B ne la connaît pas.}
+\label{fig:b}
+\end{figure}
+
+\subsection{Autres stratégies de brouillage}
+
+Le malveillant n'a pas accès au modèle de A. Il utilise tout son quota : un objet pour chaque objet de A. Trois stratégies s'ajoutent au tirage au hasard.
+
+\begin{itemize}
+\item Modèle extrême. Un seul critère porte le poids, et les seuils sont hauts. Presque tous ses objets tombent dans la catégorie la plus basse.
+\item Classe fixe. Chaque objet reçoit la catégorie la plus basse, sans modèle.
+\item Deux MR-Sort. Il tire deux modèles et partage ses objets en deux parts égales.
+\end{itemize}
+
+La figure~\ref{fig:strat} porte sur 10 scénarios, graines 1100 à 1109. Les objets de A sont les mêmes pour les quatre stratégies d'une graine donnée. Seules les catégories du malveillant changent. Le hasard est le cas où B, après avoir appris deux modèles, en tire un au sort.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../results/strategies_multi.png}
+\caption{Quatre stratégies, dix scénarios. Les barres valent $\pm 1{,}96$ erreur-type.}
+\label{fig:strat}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+Stratégie & Modèle unique & Choix de B & Hasard & Bonne règle \\
+\midrule
+MR-Sort au hasard & 0,73 & 0,73 & 0,65 & 5/10 \\
+Modèle extrême & 0,63 & 0,45 & 0,58 & 2/10 \\
+Classe fixe & 0,57 & 0,44 & 0,61 & 2/10 \\
+Deux MR-Sort & 0,81 & 0,81 & 0,58 & 10/10 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La classe fixe et le modèle extrême gênent B plus que le MR-Sort tiré au hasard. Le choix entre les deux modèles appris devient alors mauvais : B garde la règle du malveillant, et sa précision tombe vers 0,44. Deux MR-Sort gênent peu. Les objets de A restent les plus cohérents, et B retient la bonne règle sur les 10 scénarios.
+
+\section{Conclusion}
+
+Le programme du jalon~1 retrouve un MR-Sort à partir d'exemples classés, avec une précision de test de 0,94 sur la configuration essayée. L'heuristique du jalon~2 sépare deux comportements mélangés et dépasse un modèle unique d'environ vingt points sur les fichiers enregistrés. Au jalon~3, cette séparation aide B tant que le malveillant envoie moins d'objets que A. À quota égal, B ne distingue plus les deux règles. Parmi les stratégies qui restent dans le sujet, la plus gênante est d'envoyer des objets tous placés dans la catégorie la plus basse, ou classés par un modèle extrême. B choisit alors souvent la mauvaise règle.
+
+\end{document}
