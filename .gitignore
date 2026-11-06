@@ -15,3 +15,4 @@ data/Datasets-Step2/
 results/logs/
 results/benchmark_results/
 *.log
+~$*
